@@ -1,7 +1,7 @@
 name: AutoTrade
 on:
   schedule:
-    - cron: '0 * * * *' # تشغيل كل رأس ساعة
+    - cron: '*/5 * * * *' # تشغيل كل 5 دقائق
   workflow_dispatch: # زر التشغيل اليدوي
 
 jobs:

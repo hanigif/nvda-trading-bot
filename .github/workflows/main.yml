@@ -1,8 +1,8 @@
-name: Run Trading Bot Every Hour
+name: AutoTrade
 on:
   schedule:
-    - cron: '0 * * * *' # سيعمل كل ساعة بالضبط
-  workflow_dispatch: # زر للتشغيل اليدوي للتجربة
+    - cron: '0 * * * *' # تشغيل كل رأس ساعة
+  workflow_dispatch: # زر التشغيل اليدوي
 
 jobs:
   run-bot:
@@ -11,13 +11,13 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v3
 
-      - name: Set up Python
+      - name: Setup Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
 
-      - name: Install Dependencies
+      - name: Install Libraries
         run: pip install yfinance pandas python-telegram-bot
 
-      - name: Execute Bot
+      - name: Run Bot
         run: python pro_stock_bot.py

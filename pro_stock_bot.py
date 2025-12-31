@@ -1,67 +1,48 @@
 import yfinance as yf
 import asyncio
 from telegram import Bot
-import pandas as pd
+from datetime import datetime
+import pytz
 
 TOKEN = '8508011493:AAHxTmp1T_qymnEshq_JFtfUtaU3ih8hZsQ'
 CHAT_ID = '6758877303'
+STOCKS = ['INVE-B.ST', 'BOL.ST']
 
-# محفظتك الحالية
-MY_PORTFOLIO = {
-    'INVE-B.ST': {'shares': 10, 'buy_price': 327.6},
-    'BOL.ST': {'shares': 3, 'buy_price': 505.2}
-}
-CASH = 5208.4
+async def check_market():
+    # توقيت السويد
+    tz = pytz.timezone('Europe/Stockholm')
+    now = datetime.now(tz)
+    
+    # تحديد وقت فتح وإغلاق السوق (9:00 - 17:30)
+    market_open = now.replace(hour=9, minute=0, second=0)
+    market_close = now.replace(hour=17, minute=30, second=0)
+    is_weekday = now.weekday() < 5 # من الاثنين للجمعة
 
-def analyze_strategy(symbol):
-    # سحب بيانات تاريخية لتحليل الاتجاه (آخر 20 يوم بفاصل ساعة)
-    df = yf.download(symbol, period="20d", interval="1h", progress=False)
-    if df.empty: return "بيانات غير متوفرة"
-
-    # 1. حساب مؤشر القوة النسبية RSI (لمعرفة هل السهم رخيص الآن؟)
-    delta = df['Close'].diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-    rs = gain / loss
-    rsi = 100 - (100 / (1 + rs)).iloc[-1]
-
-    # 2. حساب المتوسط المتحرك (اتجاه السهم)
-    ma20 = df['Close'].rolling(window=20).mean().iloc[-1]
-    current_price = df['Close'].iloc[-1]
-
-    # استراتيجية تعظيم الربح:
-    if rsi < 35: # السهم في منطقة شراء ذهبية
-        return f"🔥 فرصة قنص! السهم رخيص جداً (RSI: {rsi:.1f}). فكر في زيادة الكمية."
-    elif current_price < ma20 * 0.98: # السهم تحت قيمته العادلة بـ 2%
-        return "📉 هبوط مؤقت، السعر مغري للتجميع."
-    elif rsi > 70: # السهم متضخم
-        return "⚠️ تحذير: السهم مشبع شرائياً، لا تشتري الآن."
-    else:
-        return "⏳ وضع مستقر، احتفظ بالأسهم وانتظر فرصة أفضل."
+    if is_weekday and market_open <= now <= market_close:
+        return True
+    return False
 
 async def main():
-    msg = "🚀 رادار الأرباح - تحديث المحفظة:\n\n"
-    
-    for symbol, data in MY_PORTFOLIO.items():
-        ticker = yf.Ticker(symbol)
-        history = ticker.history(period="1d")
-        if history.empty: continue
-        
-        current_price = history['Close'].iloc[-1]
-        pl = (current_price - data['buy_price']) * data['shares']
-        pl_pct = ((current_price - data['buy_price']) / data['buy_price']) * 100
-        
-        # تحليل الاستراتيجية لكل سهم
-        advice = analyze_strategy(symbol)
-        
-        msg += f"📌 {symbol}\n💰 السعر: {current_price:.2f} SEK\n📊 الأداء: {pl:+.2f} SEK ({pl_pct:+.2f}%)\n💡 {advice}\n"
-        msg += "------------------\n"
-
-    msg += f"💵 كاش متاح للقنص: {CASH:.2f} SEK"
-
     bot = Bot(token=TOKEN)
-    async with bot:
-        await bot.send_message(chat_id=CHAT_ID, text=msg)
+    market_active = await check_market()
+    
+    if not market_active:
+        print("السوق مغلق حالياً.")
+        return
+
+    # أثناء فتح السوق، سنقوم بعمل حلقة فحص مكثفة
+    # ملاحظة: GitHub Actions سيغلق السكريبت بعد فترة، لذا سنفحص لـ 50 دقيقة ثم نخرج
+    for _ in range(50): 
+        for symbol in STOCKS:
+            data = yf.download(symbol, period="1d", interval="1m", progress=False)
+            if not data.empty:
+                current_price = data['Close'].iloc[-1]
+                # هنا نضع شرط "التنبيه الفوري" إذا تحرك السعر بأكثر من 0.5%
+                print(f"فحص {symbol}: {current_price}")
+                
+                # (اختياري) أضف شروطك هنا لإرسال رسائل فقط عند الفرص القوية
+        
+        await asyncio.sleep(60) # فحص كل دقيقة (أفضل للمجاني)
 
 if __name__ == "__main__":
     asyncio.run(main())

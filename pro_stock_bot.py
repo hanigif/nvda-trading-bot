@@ -2,28 +2,45 @@ import yfinance as yf
 import asyncio
 from telegram import Bot
 
+# إعدادات التوصيل
 TOKEN = '8508011493:AAHxTmp1T_qymnEshq_JFtfUtaU3ih8hZsQ'
 CHAT_ID = '6758877303'
-SYMBOL = 'NVDA'
+
+# بيانات محفظتك التي سجلناها
+MY_PORTFOLIO = {
+    'INVE-B.ST': {'shares': 10, 'buy_price': 327.6},
+    'BOL.ST': {'shares': 3, 'buy_price': 505.2}
+}
+CASH_AVAILABLE = 5208.4
 
 async def main():
-    # سحب بيانات الـ 15 دقيقة الأخيرة (أكثر دقة للمضاربة)
-    df = yf.download(SYMBOL, period="5d", interval="15m", progress=False)
+    msg = "📋 تقرير محفظتك اللحظي:\n\n"
+    total_market_value = 0
     
-    price = df['Close'].iloc[-1]
-    ma20 = df['Close'].rolling(20).mean().iloc[-1] # متوسط السعر
-    volume_avg = df['Volume'].rolling(20).mean().iloc[-1] # متوسط السيولة
-    current_volume = df['Volume'].iloc[-1]
-    
-    msg = f"🔍 تحليل NVDA الذكي:\n💰 السعر: {price:.2f}$\n"
+    for symbol, data in MY_PORTFOLIO.items():
+        # سحب السعر الحالي من بورصة ستوكهولم
+        ticker = yf.Ticker(symbol)
+        current_price = ticker.history(period="1d")['Close'].iloc[-1]
+        
+        # حساب الأرباح والخسائر
+        buy_price = data['buy_price']
+        shares = data['shares']
+        profit_loss = (current_price - buy_price) * shares
+        pl_percent = ((current_price - buy_price) / buy_price) * 100
+        
+        total_market_value += (current_price * shares)
+        
+        status = "📈 ربح" if profit_loss > 0 else "📉 خسارة"
+        msg += f"🔹 {symbol}:\n"
+        msg += f"💰 السعر الآن: {current_price:.2f} SEK\n"
+        msg += f"📊 {status}: {profit_loss:.2f} SEK ({pl_percent:.2f}%)\n\n"
 
-    # شرط شراء ذكي: السعر تحت المتوسط + سيولة عالية (دخول حيتان)
-    if price < ma20 and current_volume > volume_avg:
-        msg += "🚀 إشارة شراء قوية (دخول سيولة وسعر مغري)"
-    elif price > ma20 * 1.02:
-        msg += "🔻 إشارة بيع (بدأ السعر يتضخم)"
-    else:
-        msg += "⏳ السوق هادئ - انتظار"
+    msg += f"💵 السيولة المتوفرة: {CASH_AVAILABLE:.2f} SEK\n"
+    msg += f"🏦 القيمة الإجمالية للمحفظة: {total_market_value + CASH_AVAILABLE:.2f} SEK"
+
+    # إضافة نصيحة ذكية بناءً على السيولة
+    if CASH_AVAILABLE > 1000:
+        msg += "\n\n💡 نصيحة: لديك سيولة جيدة، إذا هبط سهم Boliden تحت 490 قد تكون فرصة ممتازة للتعديل."
 
     bot = Bot(token=TOKEN)
     async with bot:

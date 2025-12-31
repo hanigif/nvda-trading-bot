@@ -1,46 +1,63 @@
 import yfinance as yf
 import asyncio
 from telegram import Bot
+import pandas as pd
 
-# إعدادات التوصيل
 TOKEN = '8508011493:AAHxTmp1T_qymnEshq_JFtfUtaU3ih8hZsQ'
 CHAT_ID = '6758877303'
 
-# بيانات محفظتك التي سجلناها
+# محفظتك الحالية
 MY_PORTFOLIO = {
     'INVE-B.ST': {'shares': 10, 'buy_price': 327.6},
     'BOL.ST': {'shares': 3, 'buy_price': 505.2}
 }
-CASH_AVAILABLE = 5208.4
+CASH = 5208.4
+
+def analyze_strategy(symbol):
+    # سحب بيانات تاريخية لتحليل الاتجاه (آخر 20 يوم بفاصل ساعة)
+    df = yf.download(symbol, period="20d", interval="1h", progress=False)
+    if df.empty: return "بيانات غير متوفرة"
+
+    # 1. حساب مؤشر القوة النسبية RSI (لمعرفة هل السهم رخيص الآن؟)
+    delta = df['Close'].diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+    rs = gain / loss
+    rsi = 100 - (100 / (1 + rs)).iloc[-1]
+
+    # 2. حساب المتوسط المتحرك (اتجاه السهم)
+    ma20 = df['Close'].rolling(window=20).mean().iloc[-1]
+    current_price = df['Close'].iloc[-1]
+
+    # استراتيجية تعظيم الربح:
+    if rsi < 35: # السهم في منطقة شراء ذهبية
+        return f"🔥 فرصة قنص! السهم رخيص جداً (RSI: {rsi:.1f}). فكر في زيادة الكمية."
+    elif current_price < ma20 * 0.98: # السهم تحت قيمته العادلة بـ 2%
+        return "📉 هبوط مؤقت، السعر مغري للتجميع."
+    elif rsi > 70: # السهم متضخم
+        return "⚠️ تحذير: السهم مشبع شرائياً، لا تشتري الآن."
+    else:
+        return "⏳ وضع مستقر، احتفظ بالأسهم وانتظر فرصة أفضل."
 
 async def main():
-    msg = "📋 تقرير محفظتك اللحظي:\n\n"
-    total_market_value = 0
+    msg = "🚀 رادار الأرباح - تحديث المحفظة:\n\n"
     
     for symbol, data in MY_PORTFOLIO.items():
-        # سحب السعر الحالي من بورصة ستوكهولم
         ticker = yf.Ticker(symbol)
-        current_price = ticker.history(period="1d")['Close'].iloc[-1]
+        history = ticker.history(period="1d")
+        if history.empty: continue
         
-        # حساب الأرباح والخسائر
-        buy_price = data['buy_price']
-        shares = data['shares']
-        profit_loss = (current_price - buy_price) * shares
-        pl_percent = ((current_price - buy_price) / buy_price) * 100
+        current_price = history['Close'].iloc[-1]
+        pl = (current_price - data['buy_price']) * data['shares']
+        pl_pct = ((current_price - data['buy_price']) / data['buy_price']) * 100
         
-        total_market_value += (current_price * shares)
+        # تحليل الاستراتيجية لكل سهم
+        advice = analyze_strategy(symbol)
         
-        status = "📈 ربح" if profit_loss > 0 else "📉 خسارة"
-        msg += f"🔹 {symbol}:\n"
-        msg += f"💰 السعر الآن: {current_price:.2f} SEK\n"
-        msg += f"📊 {status}: {profit_loss:.2f} SEK ({pl_percent:.2f}%)\n\n"
+        msg += f"📌 {symbol}\n💰 السعر: {current_price:.2f} SEK\n📊 الأداء: {pl:+.2f} SEK ({pl_pct:+.2f}%)\n💡 {advice}\n"
+        msg += "------------------\n"
 
-    msg += f"💵 السيولة المتوفرة: {CASH_AVAILABLE:.2f} SEK\n"
-    msg += f"🏦 القيمة الإجمالية للمحفظة: {total_market_value + CASH_AVAILABLE:.2f} SEK"
-
-    # إضافة نصيحة ذكية بناءً على السيولة
-    if CASH_AVAILABLE > 1000:
-        msg += "\n\n💡 نصيحة: لديك سيولة جيدة، إذا هبط سهم Boliden تحت 490 قد تكون فرصة ممتازة للتعديل."
+    msg += f"💵 كاش متاح للقنص: {CASH:.2f} SEK"
 
     bot = Bot(token=TOKEN)
     async with bot:

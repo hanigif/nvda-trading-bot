@@ -7,7 +7,7 @@ import numpy as np
 import pytz
 from datetime import datetime
 
-# --- الإعدادات الفنية المقدسة (لا تُمس) ---
+# --- الإعدادات الفنية (الأساس المتين) ---
 TOKEN = '8508011493:AAHxTmp1T_qymnEshq_JFtfUtaU3ih8hZsQ'
 CHAT_ID = '6758877303'
 
@@ -24,61 +24,63 @@ async def main():
     tz = pytz.timezone('Europe/Stockholm')
     now = datetime.now(tz)
     
-    header = f"🏰 **نظام السيطرة الشاملة V13**\n"
-    header += f"🛰️ [رادار السلع + الموسمية + الوقف الذكي]\n"
+    header = f"🏰 **نظام السيادة المالية V14**\n"
+    header += f"🌐 [الارتباط العالمي + رادار المحللين + الفجوات]\n"
     header += "----------------------------\n"
     
     body = ""
     total_val = cash
 
-    # 1. مراقبة السلع العالمية (ذهب، نفط، نحاس)
+    # 1. تحليل الارتباط العالمي (S&P 500 & DAX) لتوقع افتتاح السويد
     try:
-        commodities = yf.download(["GC=F", "CL=F", "HG=F"], period="2d", progress=False)['Close']
-        gold_change = ((commodities['GC=F'].iloc[-1] - commodities['GC=F'].iloc[-2]) / commodities['GC=F'].iloc[-2]) * 100
-        body += f"🌍 **رادار السلع:** الذهب ({gold_change:+.1f}%) | "
-        body += "ترقب حركة أسهم التعدين (Boliden/SSAB)\n\n"
+        global_markets = yf.download(["^GSPC", "^GDAXI"], period="2d", progress=False)['Close']
+        sp500_change = ((global_markets['^GSPC'].iloc[-1] - global_markets['^GSPC'].iloc[-2]) / global_markets['^GSPC'].iloc[-2]) * 100
+        market_mood = "🟢 إيجابي" if sp500_change > 0 else "🔴 حذر"
+        body += f"🌍 **مزاج السوق العالمي:** {market_mood} ({sp500_change:+.2f}%)\n"
     except: pass
 
-    # 2. إدارة المحفظة (الأساس المتين + الوقف الذكي)
+    # 2. فحص المحفظة (الأساس + توقعات المحللين)
     for symbol, info in my_stocks.items():
         try:
-            df = yf.download(symbol, period="5y", progress=False)
+            ticker = yf.Ticker(symbol)
+            df = ticker.history(period="5d")
             curr = float(df['Close'].iloc[-1])
             total_val += curr * info['shares']
             
-            # أ. الوقف المتحرك الذكي (حماية الأرباح)
-            peak_price = float(df['Close'].tail(30).max())
-            stop_level = peak_price * 0.90 # وقف عند هبوط 10% من القمة
-            if curr < stop_level:
-                body += f"🛑 **تنبيه خروج:** {symbol} كسر حاجز الحماية (الوقف المتحرك).\n"
-
-            # ب. التحليل الموسمي
-            this_month_hist = df[df.index.month == now.month]
-            avg_return = this_month_hist['Close'].pct_change().mean() * 100
-            if avg_return > 2.5:
-                body += f"📅 **قوة موسمية:** {symbol} تاريخياً يصعد {avg_return:.1f}% في {now.strftime('%B')}.\n"
+            # رادار المحللين (Analyst Consensus)
+            target = ticker.info.get('targetMeanPrice', curr)
+            upside = ((target - curr) / curr) * 100
+            
+            if upside > 20:
+                body += f"🎯 **هدف بعيد:** {symbol} لديه فجوة صعود {upside:.1f}% حسب المحللين.\n"
+            
+            # تحليل فجوات الافتتاح (Gap Analysis)
+            prev_close = float(df['Close'].iloc[-2])
+            open_price = float(df['Open'].iloc[-1])
+            gap = ((open_price - prev_close) / prev_close) * 100
+            if abs(gap) > 2:
+                body += f"⚡ **فجوة سعرية:** {symbol} افتتح بفجوة {gap:+.1f}%.\n"
         except: continue
 
-    # 3. مسح الـ 100 شركة (قنص الجواهر بنسبة شارب والسيولة)
-    WATCHLIST = ['VOLV-B.ST', 'HM-B.ST', 'ERIC-B.ST', 'AZN.ST', 'SAAB-B.ST', 'INVE-B.ST', 'EVO.ST', 'SEB-A.ST']
+    # 3. قنص الـ 100 شركة (مؤشر الخوف والفرص الذهبية)
+    WATCHLIST = ['VOLV-B.ST', 'HM-B.ST', 'ERIC-B.ST', 'AZN.ST', 'SAAB-B.ST', 'INVE-B.ST', 'EVO.ST']
     for symbol in WATCHLIST:
         if symbol in my_stocks: continue
         try:
-            df = yf.download(symbol, period="1y", progress=False)
-            returns = df['Close'].pct_change()
-            sharpe = (returns.mean() / returns.std()) * np.sqrt(252)
-            
-            # إذا كان السهم ذو جودة عالية (Sharpe > 1.2) وهبط تقنياً (RSI < 35)
-            if sharpe > 1.2:
-                body += f"💎 **فرصة مؤسسات:** {symbol} (Sharpe: {sharpe:.1f}) جاهز للقنص.\n"
+            t = yf.Ticker(symbol)
+            # اختيار الأسهم التي يجمع عليها المحللون بالـ "شراء القوي"
+            recommendation = t.info.get('recommendationKey', 'none')
+            if recommendation in ['buy', 'strong_buy']:
+                body += f"🌟 **توصية مؤسسات:** {symbol} تقييمه (Buy) من كبار البنوك.\n"
         except: continue
 
-    # 4. التقرير النهائي
-    footer = f"\n💰 **صافي قيمة الأصول:** {total_val:.0f} SEK"
-    footer += f"\n🛡️ **حالة الكاش:** {cash:.0f} SEK (جاهز للتعزيز)"
+    # 4. التقرير المالي النهائي
+    footer = f"\n💰 **إجمالي قيمة الأصول:** {total_val:.0f} SEK"
+    footer += f"\n🛡️ **السيولة الجاهزة:** {cash:.0f} SEK"
     
-    async with bot:
-        await bot.send_message(chat_id=CHAT_ID, text=header + body + footer, parse_mode='Markdown')
+    if body or "مزاج" in body:
+        async with bot:
+            await bot.send_message(chat_id=CHAT_ID, text=header + body + footer, parse_mode='Markdown')
 
 if __name__ == "__main__":
     asyncio.run(main())

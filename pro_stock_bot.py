@@ -3,84 +3,83 @@ import asyncio
 from telegram import Bot
 import pandas as pd
 
-# --- الأساس الثابت ---
+# --- الإعدادات الثابتة ---
 TOKEN = '8508011493:AAHxTmp1T_qymnEshq_JFtfUtaU3ih8hZsQ'
 CHAT_ID = '6758877303'
+
+# محفظتك الحالية
 MY_PORTFOLIO = {
     'INVE-B.ST': {'shares': 10, 'buy_price': 327.6},
     'BOL.ST': {'shares': 3, 'buy_price': 505.2}
 }
 
+# رادار أكبر الشركات السويدية (أضفنا عينة من أكبر 100 شركة للمراقبة)
+WATCHLIST = [
+    'VOLV-B.ST', 'HM-B.ST', 'ERIC-B.ST', 'SWED-A.ST', 'SEB-A.ST', 
+    'SHB-A.ST', 'AZN.ST', 'ABB.ST', 'ATCO-A.ST', 'ASSAB.ST',
+    'TELIA.ST', 'ALIV-SDB.ST', 'SAND.ST', 'SKF-B.ST', 'EPI-A.ST'
+]
+
 def get_market_sentiment():
-    """تحليل وضع السوق السويدي العام (OMXS30)"""
     try:
-        index = yf.Ticker("^OMX") # مؤشر سوق ستوكهولم
+        index = yf.Ticker("^OMX")
         hist = index.history(period="2d")
-        if len(hist) < 2: return "NEUTRAL"
-        
-        prev_close = hist['Close'].iloc[-2]
-        curr_close = hist['Close'].iloc[-1]
-        change = ((curr_close - prev_close) / prev_close) * 100
-        
-        if change > 0.5: return "BULLISH" # سوق صاعد
-        elif change < -0.5: return "BEARISH" # سوق هابط
-        return "NEUTRAL"
-    except:
-        return "NEUTRAL"
+        change = ((hist['Close'].iloc[-1] - hist['Close'].iloc[-2]) / hist['Close'].iloc[-2]) * 100
+        return "BULLISH" if change > 0.3 else "BEARISH" if change < -0.3 else "NEUTRAL"
+    except: return "NEUTRAL"
 
-def pro_analyzer_v8(symbol, current_price, market_status):
+def analyze_stock(symbol):
+    """تحليل معمق لاقتناص الفرص في الـ 100 شركة"""
     try:
-        df = yf.download(symbol, period="60d", interval="1d", progress=False)
-        if df.empty: return None, None
-
-        # حساب RSI والسيولة
+        df = yf.download(symbol, period="30d", interval="1d", progress=False)
+        if df.empty: return None
+        
+        # مؤشر RSI
         delta = df['Close'].diff()
         gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
         rsi = 100 - (100 / (1 + (gain / loss))).iloc[-1]
         
+        # شرط السيولة
         avg_vol = df['Volume'].mean()
         curr_vol = df['Volume'].iloc[-1]
-
-        # منطق النسخة 8.0: الشراء فقط إذا كان السوق مساعداً
-        if rsi < 35 and curr_vol > avg_vol:
-            if market_status == "BEARISH":
-                return "WAIT", "⚠️ فرصة شراء فنية، لكن السوق العام هابط. يفضل الانتظار."
-            return "BUY", f"🔥 إشارة شراء ذهبية! السوق مستقر والسيولة عالية (RSI: {rsi:.1f})."
         
-        # ملاحقة الأرباح (Trailing)
-        highest = df['High'].tail(5).max()
-        if rsi > 70 and current_price < (highest * 0.985):
-            return "SELL", "⚠️ إشارة جني أرباح! السهم بدأ يتراجع عن القمة."
-
-        return "WAIT", None
-    except:
-        return None, None
+        if rsi < 30 and curr_vol > avg_vol:
+            return f"🔥 فرصة شراء ذهبية: سهم {symbol} رخيص جداً وسيولته عالية (RSI: {rsi:.1f})"
+        return None
+    except: return None
 
 async def main():
     bot = Bot(token=TOKEN)
     market_status = get_market_sentiment()
-    opportunity_found = False
-    report = f"🏛️ حالة السوق العام: {market_status}\n"
-    report += "🚀 رادار النسخة 8.0 (التحليل الاستراتيجي):\n\n"
+    report = f"🏛️ حالة السوق: {market_status}\n"
+    report += "🔎 نتائج مسح أكبر 100 شركة (OMXS100):\n\n"
     
+    found_any = False
+
+    # 1. فحص محفظتك الحالية أولاً
+    report += "📋 محفظتك الحالية:\n"
     for symbol, data in MY_PORTFOLIO.items():
         ticker = yf.Ticker(symbol)
-        curr_price = ticker.history(period="1d")['Close'].iloc[-1]
-        profit_pct = ((curr_price - data['buy_price']) / data['buy_price']) * 100
-        
-        action, advice = pro_analyzer_v8(symbol, curr_price, market_status)
-        
-        if action in ["BUY", "SELL"] or advice:
-            opportunity_found = True
-            report += f"📌 {symbol}\n💰 {curr_price:.2f} SEK\n💡 {advice if advice else 'مراقب'}\n\n"
-        elif profit_pct > 3:
-            opportunity_found = True
-            report += f"💰 ربح {profit_pct:.2f}% في {symbol}. الملاحقة مفعلة.\n\n"
+        curr = ticker.history(period="1d")['Close'].iloc[-1]
+        profit = ((curr - data['buy_price']) / data['buy_price']) * 100
+        if profit > 3:
+            report += f"✅ {symbol}: ربح ممتاز {profit:.2f}% (يتم تفعيل الملاحقة)\n"
+            found_any = True
 
-    if opportunity_found:
-        async with bot:
-            await bot.send_message(chat_id=CHAT_ID, text=report)
+    # 2. مسح الـ Watchlist للبحث عن فرص جديدة (هدفنا الـ 100 شركة)
+    report += "\n🎯 فرص جديدة مكتشفة:\n"
+    for symbol in WATCHLIST:
+        opportunity = analyze_stock(symbol)
+        if opportunity:
+            report += f"{opportunity}\n"
+            found_any = True
+    
+    if not found_any:
+        report += "⏳ لا توجد فرص انفجارية حالياً في السوق. البوت يراقب بصمت."
+
+    async with bot:
+        await bot.send_message(chat_id=CHAT_ID, text=report)
 
 if __name__ == "__main__":
     asyncio.run(main())

@@ -6,7 +6,7 @@ import json
 import pytz
 from datetime import datetime, time
 
-# --- الإعدادات الفنية ---
+# --- الإعدادات ---
 TOKEN = '8508011493:AAHxTmp1T_qymnEshq_JFtfUtaU3ih8hZsQ'
 CHAT_ID = '6758877303'
 
@@ -14,14 +14,22 @@ def load_data():
     with open('portfolio.json', 'r') as f:
         return json.load(f)
 
-def get_market_correlations():
+def analyze_expert_signals(symbol, df):
+    """دمج فلتر السيولة مع RSI والماكرو"""
     try:
-        spy = yf.Ticker("^GSPC")
-        hist = spy.history(period="2d")
-        if len(hist) < 2: return 0
-        change = ((hist['Close'].iloc[-1] - hist['Close'].iloc[-2]) / hist['Close'].iloc[-2]) * 100
-        return float(change)
-    except: return 0
+        # 1. حساب السيولة (Volume Spike)
+        avg_volume = df['Volume'].rolling(window=20).mean().iloc[-1]
+        curr_volume = df['Volume'].iloc[-1]
+        vol_spike = curr_volume > (avg_volume * 1.5) # زيادة 50% عن المعتاد
+        
+        # 2. حساب RSI
+        delta = df['Close'].diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean().iloc[-1]
+        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean().iloc[-1]
+        rsi = 100 - (100 / (1 + (gain / loss))) if loss != 0 else 100
+        
+        return rsi, vol_spike
+    except: return 50, False
 
 async def main():
     bot = Bot(token=TOKEN)
@@ -32,63 +40,53 @@ async def main():
     tz = pytz.timezone('Europe/Stockholm')
     now = datetime.now(tz)
     
-    # 1. تقرير ما قبل الافتتاح
-    is_pre_market = time(8, 0) <= now.time() <= time(9, 30)
-    us_change = get_market_correlations()
-    
-    header = f"🏦 **صندوق القناص الاستثماري** 🇸🇪\n"
-    header += f"🌎 أداء السوق الأمريكي: {us_change:+.2f}%\n"
-    header += f"💵 الكاش: {cash:.2f} SEK\n"
+    header = f"🛡️ **نظام الإدارة السيادية V9**\n"
+    header += f"⏰ {now.strftime('%H:%M')} | سيولة + ماكرو + سجل\n"
     header += "----------------------------\n"
     
     body = ""
     found_any = False
-    total_portfolio_value = cash
+    total_val = cash
 
-    # 2. إدارة المحفظة
+    # 1. مراقبة المحفظة + (فلتر الأخبار الاقتصادية الكبرى)
+    # سنبحث عن أخبار Riksbank أو الفائدة
+    market_news = yf.Ticker("^OMX").news
+    macro_warning = ""
+    for n in market_news[:5]:
+        if any(word in n['title'].lower() for word in ['interest', 'inflation', 'riksbank', 'rate']):
+            macro_warning = f"⚠️ **تنبيه ماكرو:** أخبار عن الفائدة/التضخم قد تؤثر على السوق!\n\n"
+
     for symbol, info in my_stocks.items():
-        try:
-            df = yf.download(symbol, period="5d", progress=False)
-            if df.empty: continue
-            
-            # سحب سعر الإغلاق الأخير كرقم واحد فقط
-            curr = float(df['Close'].iloc[-1])
-            total_portfolio_value += curr * info['shares']
-            
-            profit = ((curr - info['buy_price']) / info['buy_price']) * 100
-            
-            if profit > 4.5:
-                body += f"🎯 **هدف محقق:** {symbol} (+{profit:.2f}%)\n"
-                found_any = True
-            elif profit < -5.0:
-                body += f"⚠️ **تحذير خبير:** {symbol} هبط ({profit:.2f}%).\n"
-                found_any = True
-        except: continue
+        df = yf.download(symbol, period="20d", progress=False)
+        if df.empty: continue
+        curr = float(df['Close'].iloc[-1])
+        total_val += curr * info['shares']
+        profit = ((curr - info['buy_price']) / info['buy_price']) * 100
+        
+        rsi, vol_spike = analyze_expert_signals(symbol, df)
+        
+        if profit > 4.5:
+            body += f"✅ **جني ربح:** {symbol} (+{profit:.2f}%)\n"
+            found_any = True
+        elif profit < -5.0 and vol_spike:
+            body += f"🚨 **تعزيز طارئ:** {symbol} هبط بسيولة عالية! (دخول مؤسسات)\n"
+            found_any = True
 
-    # 3. مسح الـ 100 شركة (قائمة مختصرة للاختبار)
+    # 2. مسح الـ 100 شركة (قنص الفرص الانفجارية)
     WATCHLIST = ['VOLV-B.ST', 'HM-B.ST', 'ERIC-B.ST', 'AZN.ST', 'SAAB-B.ST', 'INVE-B.ST', 'EVO.ST']
     for symbol in WATCHLIST:
         if symbol in my_stocks: continue
-        try:
-            df = yf.download(symbol, period="20d", progress=False)
-            if len(df) < 15: continue
-            
-            # حساب RSI بشكل مبسط وسريع
-            delta = df['Close'].diff()
-            gain = (delta.where(delta > 0, 0)).rolling(window=14).mean().iloc[-1]
-            loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean().iloc[-1]
-            
-            if loss != 0:
-                rsi = 100 - (100 / (1 + (gain / loss)))
-                if rsi < 30 and us_change > -0.5:
-                    body += f"💎 **قنص:** {symbol} | RSI: {rsi:.1f}\n"
-                    found_any = True
-        except: continue
+        df = yf.download(symbol, period="30d", progress=False)
+        rsi, vol_spike = analyze_expert_signals(symbol, df)
+        
+        if rsi < 30 and vol_spike:
+            body += f"💎 **لقطة سيادية:** {symbol}\n💡 RSI: {rsi:.1f} + انفجار سيولة!\n"
+            found_any = True
 
-    if is_pre_market or found_any:
-        footer = f"\n📈 **القيمة الإجمالية:** {total_portfolio_value:.0f} SEK"
+    if found_any or macro_warning:
+        footer = f"\n💰 **قيمة الصندوق الإجمالية:** {total_val:.0f} SEK"
         async with bot:
-            await bot.send_message(chat_id=CHAT_ID, text=header + body + footer, parse_mode='Markdown')
+            await bot.send_message(chat_id=CHAT_ID, text=header + macro_warning + body + footer, parse_mode='Markdown')
 
 if __name__ == "__main__":
     asyncio.run(main())

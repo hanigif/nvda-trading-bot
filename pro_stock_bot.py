@@ -7,81 +7,57 @@ import numpy as np
 import pytz
 from datetime import datetime
 
-# --- الإعدادات الثابتة ---
+# --- الإعدادات ---
 TOKEN = '8508011493:AAHxTmp1T_qymnEshq_JFtfUtaU3ih8hZsQ'
 CHAT_ID = '6758877303'
 
-def load_data():
-    with open('portfolio.json', 'r') as f:
-        return json.load(f)
-
-async def main():
+async def stress_test():
     bot = Bot(token=TOKEN)
-    user_data = load_data()
-    cash = float(user_data.get('cash', 0))
-    my_stocks = user_data.get('stocks', {})
+    with open('portfolio.json', 'r') as f:
+        user_data = json.load(f)
     
-    tz = pytz.timezone('Europe/Stockholm')
-    now = datetime.now(tz)
+    cash = float(user_data['cash'])
+    my_stocks = user_data['stocks']
     
-    header = f"🎖️ **نظام الاستهداف الشامل V12**\n"
-    header += f"🛰️ [نظام الخبير الذكاء الاصطناعي متصل]\n"
-    header += "----------------------------\n"
+    header = "🚨 **محاكاة أزمة مالية (Stress Test V12)** 🚨\n"
+    header += "⚠️ السيناريو: هبوط مفاجئ 15% في بورصة ستوكهولم\n"
+    header += "------------------------------------------\n"
     
-    body = ""
-    total_val = cash
+    report = ""
+    total_loss = 0
+    current_total_value = cash
 
-    # 1. تحليل السلع (الذهب والنفط) للتنبؤ بقطاع التعدين والطاقة
-    try:
-        gold = yf.download("GC=F", period="2d", progress=False)['Close'].iloc[-1]
-        oil = yf.download("CL=F", period="2d", progress=False)['Close'].iloc[-1]
-        commodity_msg = f"🌍 **رادار السلع:** الذهب {float(gold):.0f} | النفط {float(oil):.1f}\n"
-    except: commodity_msg = ""
-
-    # 2. إدارة المحفظة (الوقف المتحرك + الموسمية)
     for symbol, info in my_stocks.items():
         try:
-            df = yf.download(symbol, period="5y", progress=False) # 5 سنوات للتحليل الموسمي
-            curr = float(df['Close'].iloc[-1])
-            total_val += curr * info['shares']
-            profit = ((curr - info['buy_price']) / info['buy_price']) * 100
+            df = yf.download(symbol, period="5d", progress=False)
+            curr_real_price = float(df['Close'].iloc[-1])
             
-            # منطق الوقف المتحرك الذكي (Trailing Stop)
-            highest_price = df['High'].tail(30).max() # أعلى سعر في شهر
-            stop_loss = highest_price * 0.92 # وقف الخسارة عند 8% من القمة
+            # محاكاة الكارثة: هبوط السعر 15%
+            crashed_price = curr_real_price * 0.85
+            loss_in_sek = (curr_real_price - crashed_price) * info['shares']
+            total_loss += loss_in_sek
             
-            if curr < stop_loss and profit > 0:
-                body += f"🛑 **الوقف المتحرك:** {symbol} كسر حاجز الحماية. اقترح البيع لحجز أرباحك.\n"
-            
-            # التحليل الموسمي (Seasonality) لشهور يناير وفبراير
-            hist_month = df[df.index.month == now.month]
-            avg_monthly_return = hist_month['Close'].pct_change().mean() * 100
-            if avg_monthly_return > 2:
-                body += f"📅 **موسمية:** تاريخياً، {symbol} يميل للصعود في هذا الشهر (+{avg_monthly_return:.1f}%).\n"
-
+            # تفعيل "الوقف المتحرك الذكي" (Trailing Stop)
+            # بما أن السعر نزل 15%، فهو حتماً كسر الـ 8% حماية
+            report += f"❌ **{symbol}:** تم كسر نقطة الحماية!\n"
+            report += f"📉 خسارة افتراضية: -{loss_in_sek:.0f} SEK\n"
+            report += f"🛡️ الإجراء: بيع فوري لحماية ما تبقى من كاش.\n\n"
         except: continue
 
-    # 3. قنص الـ 100 شركة (معايير شارب والسيولة)
-    WATCHLIST = ['VOLV-B.ST', 'HM-B.ST', 'ERIC-B.ST', 'AZN.ST', 'SAAB-B.ST', 'INVE-B.ST', 'EVO.ST']
-    for symbol in WATCHLIST:
-        if symbol in my_stocks: continue
-        try:
-            df = yf.download(symbol, period="1y", progress=False)
-            # حساب مبسط لنسبة شارب (العائد/الانحراف المعياري)
-            returns = df['Close'].pct_change()
-            sharpe = (returns.mean() / returns.std()) * np.sqrt(252)
-            
-            if sharpe > 1.5: # أسهم ذات جودة عالية
-                body += f"💎 **جوهرة شارب:** {symbol} (كفاءة عالية مقابل المخاطر).\n"
-        except: continue
+    # حساب النتيجة النهائية للصمود
+    safety_ratio = (cash / total_loss) if total_loss > 0 else 10
+    
+    summary = f"📊 **ملخص الصمود:**\n"
+    summary += f"📉 إجمالي الخسارة الافتراضية: {total_loss:.0f} SEK\n"
+    summary += f"💵 الكاش المتوفر للشراء من القاع: {cash:.0f} SEK\n"
+    
+    if safety_ratio > 1:
+        summary += "✅ **النتيجة:** محفظتك آمنة. لديك كاش كافٍ لتعويض الخسارة بالشراء من الأسفل."
+    else:
+        summary += "⚠️ **النتيجة:** خطر! الكاش قليل جداً مقارنة بحجم المخاطرة. أنصح بزيادة السيولة."
 
-    if body or commodity_msg:
-        footer = f"\n💰 **رصيد الصندوق:** {total_val:.0f} SEK"
-        msg = header + commodity_msg + body + footer
-        async with bot:
-            await bot.send_message(chat_id=CHAT_ID, text=msg, parse_mode='Markdown')
-
-    # لقد تم حفظ المعلومات في ذاكرتي. يمكنك دائمًا الطلب منّي أن أنسى معلومات أو إدارة المعلومات التي حفظتها [في إعداداتك](https://gemini.google.com/saved-info).
+    async with bot:
+        await bot.send_message(chat_id=CHAT_ID, text=header + report + summary, parse_mode='Markdown')
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(stress_test())

@@ -1,8 +1,8 @@
 name: Swedish Sniper Bot
 on:
   schedule:
-    - cron: '0 * * * *' # يعمل تلقائياً كل ساعة
-  workflow_dispatch: # يتيح لك تشغيله يدوياً للتجربة
+    - cron: '*/5 * * * *' # هكذا سيعمل كل 5 دقائق بالضبط
+  workflow_dispatch:
 
 jobs:
   build:

@@ -2,97 +2,81 @@ import yfinance as yf
 import asyncio
 from telegram import Bot
 import pandas as pd
-from datetime import datetime
-import pytz
 
-# --- الأساس المعتمد (لا يمس) ---
+# --- الأساس الثابت (النسخة 7.0 المتمثلة في طلبك) ---
 TOKEN = '8508011493:AAHxTmp1T_qymnEshq_JFtfUtaU3ih8hZsQ'
 CHAT_ID = '6758877303'
+
 MY_PORTFOLIO = {
     'INVE-B.ST': {'shares': 10, 'buy_price': 327.6},
     'BOL.ST': {'shares': 3, 'buy_price': 505.2}
 }
-CASH = 5208.4
 
-# قائمة الرادار (OMXS100)
-WATCHLIST = [
-    'VOLV-B.ST', 'ERIC-B.ST', 'HM-B.ST', 'SEB-A.ST', 'SWED-A.ST', 'SHB-A.ST',
-    'AZN.ST', 'ATCO-A.ST', 'ABB.ST', 'ALFA.ST', 'ASSA-B.ST', 'TELIA.ST',
-    'SKF-B.ST', 'SCA-B.ST', 'SAND.ST', 'NIBE-B.ST', 'EVO.ST', 'TEL2-B.ST',
-    'STE-R.ST', 'SK-B.ST', 'ESSITY-B.ST', 'LUND-B.ST', 'GETI-B.ST', 'KINV-B.ST'
-]
-
-def advanced_analyzer(symbol):
-    """محرك التحليل لاقتناص أكبر عائد"""
+def pro_analyzer_v7(symbol, current_price):
+    """تحليل النسخة 7.0: يعتمد على السيولة وملاحقة القمم"""
     try:
-        df = yf.download(symbol, period="60d", interval="1h", progress=False)
-        if df.empty or len(df) < 20: return None
+        # دراسة بيانات 60 يوماً مع الحجم (Volume)
+        df = yf.download(symbol, period="60d", interval="1d", progress=False)
+        if df.empty: return None, None
+
+        # 1. حساب مؤشر RSI
         delta = df['Close'].diff()
         gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
         rsi = 100 - (100 / (1 + (gain / loss))).iloc[-1]
-        ma20 = df['Close'].rolling(window=20).mean().iloc[-1]
-        current_price = df['Close'].iloc[-1]
+        
+        # 2. تحليل حجم التداول (Volume)
+        avg_volume = df['Volume'].mean()
+        curr_volume = df['Volume'].iloc[-1]
+        high_volume = curr_volume > avg_volume # هل السيولة عالية؟
 
-        if rsi < 25 and current_price > (ma20 * 0.98):
-            return f"🔥 فرصة قنص! (RSI: {rsi:.1f})"
-        elif rsi > 80:
-            return f"⚠️ تضخم! (RSI: {rsi:.1f})"
-        return None
-    except: return None
+        # 3. منطق ملاحقة الأرباح (Trailing Logic)
+        highest_price = df['High'].max()
+        drop_from_peak = ((highest_price - current_price) / highest_price) * 100
+
+        # --- اتخاذ القرار الذكي ---
+        # شراء: سعر رخيص + سيولة داخلة (Volume)
+        if rsi < 30 and high_volume:
+            return "BUY", f"🔥 فرصة قنص مؤكدة بسيولة عالية! (RSI: {rsi:.1f})"
+        
+        # بيع (Trailing): إذا السعر نزل 2% عن أعلى قمة وصلها بعد الصعود
+        elif rsi > 70 and drop_from_peak > 2:
+            return "SELL", f"⚠️ إشارة جني أرباح (Trailing)! السعر بدأ يتراجع عن القمة (RSI: {rsi:.1f})"
+        
+        return "WAIT", None
+    except:
+        return None, None
 
 async def main():
     bot = Bot(token=TOKEN)
-    now_sweden = datetime.now(pytz.timezone('Europe/Stockholm'))
+    opportunity_found = False
+    report = "🚀 النسخة 7.0 | ملاحق الأرباح والسيولة:\n\n"
     
-    # تحديد وقت الملخص (الساعة 17:35 بتوقيت السويد - بعد إغلاق السوق)
-    is_closing_time = now_sweden.hour == 17 and 30 <= now_sweden.minute <= 40
-    
-    found_opportunity = False
-    opportunity_report = "🚀 رادار الفرص (تنبيه فوري):\n\n"
-    summary_report = "📊 ملخص إغلاق السوق السويدي:\n\n"
-    
-    total_portfolio_value = 0
-    
-    # فحص المحفظة والحصول على البيانات
     for symbol, data in MY_PORTFOLIO.items():
         ticker = yf.Ticker(symbol)
-        curr = ticker.history(period="1d")['Close'].iloc[-1]
-        pl = (curr - data['buy_price']) * data['shares']
-        pl_pct = ((curr - data['buy_price']) / data['buy_price']) * 100
-        current_value = curr * data['shares']
-        total_portfolio_value += current_value
+        history = ticker.history(period="1d")
+        if history.empty: continue
         
-        summary_report += f"📌 {symbol}\n💰 السعر: {curr:.2f} SEK\n📈 الأداء: {pl:+.2f} ({pl_pct:+.2f}%)\n\n"
+        curr_price = history['Close'].iloc[-1]
+        profit_pct = ((curr_price - data['buy_price']) / data['buy_price']) * 100
         
-        # تنبيهات فورية أثناء اليوم (تعظيم العائد)
-        if pl_pct > 5 or pl_pct < -5:
-            found_opportunity = True
-            opportunity_report += f"🔹 {symbol}: تحرك كبير ({pl_pct:+.2f}%)\n"
+        action, advice = pro_analyzer_v7(symbol, curr_price)
+        
+        # تنبيهات ذكية جداً
+        if action in ["BUY", "SELL"]:
+            opportunity_found = True
+            report += f"📌 {symbol}\n💰 السعر: {curr_price:.2f} SEK\n💡 {advice}\n\n"
+        
+        # تنبيه إضافي للأرباح القياسية
+        elif profit_pct > 7:
+            opportunity_found = True
+            report += f"💰 ربح قياسي! {symbol} حقق {profit_pct:.2f}%. البوت يلاحق القمة الآن.\n\n"
 
-    # فحص الفرص في الرادار
-    for symbol in WATCHLIST:
-        signal = advanced_analyzer(symbol)
-        if signal:
-            found_opportunity = True
-            opportunity_report += f"🌟 {symbol}: {signal}\n"
-
-    # إرسال التقارير
-    async with bot:
-        # 1. إرسال الملخص اليومي (مرة واحدة عند الإغلاق)
-        if is_closing_time:
-            summary_report += f"💵 الكاش: {CASH:.2f} SEK\n"
-            summary_report += f"🏦 القيمة الكلية: {total_portfolio_value + CASH:.2f} SEK"
-            await bot.send_message(chat_id=CHAT_ID, text=summary_report)
-            print("✅ تم إرسال ملخص الإغلاق.")
-        
-        # 2. إرسال الفرص الفورية (في أي وقت تظهر فيه)
-        elif found_opportunity:
-            await bot.send_message(chat_id=CHAT_ID, text=opportunity_report)
-            print("✅ تم إرسال تنبيه فرصة.")
-        
-        else:
-            print("السوق تحت المراقبة.. لا توجد فرص ولا وقت للملخص حالياً.")
+    if opportunity_found:
+        async with bot:
+            await bot.send_message(chat_id=CHAT_ID, text=report)
+    else:
+        print("النسخة 7.0: المراقبة مستمرة.. السيولة والأسعار ضمن النطاق الطبيعي.")
 
 if __name__ == "__main__":
     asyncio.run(main())

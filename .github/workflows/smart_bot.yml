@@ -1,0 +1,24 @@
+name: Swedish Sniper Bot
+on:
+  schedule:
+    - cron: '0 * * * *' # يعمل كل رأس ساعة
+  workflow_dispatch: # يسمح لك بتشغيله يدوياً وقتما تشاء
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: |
+          pip install yfinance pandas python-telegram-bot
+
+      - name: Run Swedish Bot
+        run: python pro_stock_bot.py

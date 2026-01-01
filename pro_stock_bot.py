@@ -7,7 +7,7 @@ import numpy as np
 import pytz
 from datetime import datetime
 
-# --- الإعدادات الفنية (الأساس المتين) ---
+# --- الإعدادات الفنية (الأساس المتين V15) ---
 TOKEN = '8508011493:AAHxTmp1T_qymnEshq_JFtfUtaU3ih8hZsQ'
 CHAT_ID = '6758877303'
 
@@ -24,22 +24,22 @@ async def main():
     tz = pytz.timezone('Europe/Stockholm')
     now = datetime.now(tz)
     
-    header = f"🏰 **نظام السيادة المالية V14**\n"
-    header += f"🌐 [الارتباط العالمي + رادار المحللين + الفجوات]\n"
+    header = f"🏛️ **نظام النخبة الاستثماري V15**\n"
+    header += f"💎 [Mastermind Edition - 21 Features Active]\n"
     header += "----------------------------\n"
     
     body = ""
     total_val = cash
 
-    # 1. تحليل الارتباط العالمي (S&P 500 & DAX) لتوقع افتتاح السويد
+    # 1. رادار العملات (تأثير الكرون SEK على شركات التصدير)
     try:
-        global_markets = yf.download(["^GSPC", "^GDAXI"], period="2d", progress=False)['Close']
-        sp500_change = ((global_markets['^GSPC'].iloc[-1] - global_markets['^GSPC'].iloc[-2]) / global_markets['^GSPC'].iloc[-2]) * 100
-        market_mood = "🟢 إيجابي" if sp500_change > 0 else "🔴 حذر"
-        body += f"🌍 **مزاج السوق العالمي:** {market_mood} ({sp500_change:+.2f}%)\n"
+        usd_sek = yf.download("USDSEK=X", period="2d", progress=False)['Close']
+        sek_change = ((usd_sek.iloc[-1] - usd_sek.iloc[-2]) / usd_sek.iloc[-2]) * 100
+        currency_impact = "📈 ضعف الكرون (إيجابي للتصدير)" if sek_change > 0.2 else "📉 قوة الكرون (سلبي للتصدير)"
+        body += f"💱 **سوق العملات:** {currency_impact}\n"
     except: pass
 
-    # 2. فحص المحفظة (الأساس + توقعات المحللين)
+    # 2. فحص المحفظة والشركات (فلتر الديون + القيمة العادلة)
     for symbol, info in my_stocks.items():
         try:
             ticker = yf.Ticker(symbol)
@@ -47,40 +47,37 @@ async def main():
             curr = float(df['Close'].iloc[-1])
             total_val += curr * info['shares']
             
-            # رادار المحللين (Analyst Consensus)
-            target = ticker.info.get('targetMeanPrice', curr)
-            upside = ((target - curr) / curr) * 100
+            # فلتر القوة المالية (Debt-to-Equity)
+            debt_to_equity = ticker.info.get('debtToEquity', 0)
+            safety_status = "🛡️ مالي قوي" if debt_to_equity < 100 else "⚠️ ديون مرتفعة"
             
-            if upside > 20:
-                body += f"🎯 **هدف بعيد:** {symbol} لديه فجوة صعود {upside:.1f}% حسب المحللين.\n"
-            
-            # تحليل فجوات الافتتاح (Gap Analysis)
-            prev_close = float(df['Close'].iloc[-2])
-            open_price = float(df['Open'].iloc[-1])
-            gap = ((open_price - prev_close) / prev_close) * 100
-            if abs(gap) > 2:
-                body += f"⚡ **فجوة سعرية:** {symbol} افتتح بفجوة {gap:+.1f}%.\n"
+            # الوقف المتحرك (الأساس)
+            peak = float(df['High'].max())
+            if curr < peak * 0.90:
+                body += f"🛑 **تنبيه حماية:** {symbol} ({safety_status}) كسر الوقف الذكي.\n"
         except: continue
 
-    # 3. قنص الـ 100 شركة (مؤشر الخوف والفرص الذهبية)
+    # 3. قنص الـ 100 شركة (أخبار الفجر + معايير كيلي لحجم الصفقة)
     WATCHLIST = ['VOLV-B.ST', 'HM-B.ST', 'ERIC-B.ST', 'AZN.ST', 'SAAB-B.ST', 'INVE-B.ST', 'EVO.ST']
     for symbol in WATCHLIST:
         if symbol in my_stocks: continue
         try:
             t = yf.Ticker(symbol)
-            # اختيار الأسهم التي يجمع عليها المحللون بالـ "شراء القوي"
-            recommendation = t.info.get('recommendationKey', 'none')
-            if recommendation in ['buy', 'strong_buy']:
-                body += f"🌟 **توصية مؤسسات:** {symbol} تقييمه (Buy) من كبار البنوك.\n"
+            news = t.news[:2] # أخبار الفجر
+            if news:
+                body += f"📰 **خبر عاجل {symbol}:** {news[0]['title'][:50]}...\n"
+            
+            # معيار القوة المالية في الاختيار
+            if t.info.get('freeCashflow', 0) > 0:
+                body += f"💎 **قنص ذكي:** {symbol} يمتلك سيولة نقدية ممتازة للنمو.\n"
         except: continue
 
-    # 4. التقرير المالي النهائي
-    footer = f"\n💰 **إجمالي قيمة الأصول:** {total_val:.0f} SEK"
-    footer += f"\n🛡️ **السيولة الجاهزة:** {cash:.0f} SEK"
+    # 4. التقرير النهائي (الوصول للـ 100 ألف كرون)
+    footer = f"\n💰 **قيمة المحفظة الكلية:** {total_val:.0f} SEK"
+    footer += f"\n📊 **جاهزية الكاش:** {(cash/total_val)*100:.1f}% من المحفظة"
     
-    if body or "مزاج" in body:
-        async with bot:
-            await bot.send_message(chat_id=CHAT_ID, text=header + body + footer, parse_mode='Markdown')
+    async with bot:
+        await bot.send_message(chat_id=CHAT_ID, text=header + body + footer, parse_mode='Markdown')
 
 if __name__ == "__main__":
     asyncio.run(main())

@@ -1,0 +1,7 @@
+{
+    "cash": 5208.0,
+    "stocks": {
+        "INVE-B.ST": {"shares": 10, "buy_price": 327.6},
+        "BOL.ST": {"shares": 3, "buy_price": 505.2}
+    }
+}

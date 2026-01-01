@@ -3,83 +3,84 @@ import asyncio
 from telegram import Bot
 import pandas as pd
 
-# --- الأساس الثابت (النسخة 7.1) ---
+# --- الأساس الثابت ---
 TOKEN = '8508011493:AAHxTmp1T_qymnEshq_JFtfUtaU3ih8hZsQ'
 CHAT_ID = '6758877303'
-
-# محفظتك السويدية المعتمدة
 MY_PORTFOLIO = {
     'INVE-B.ST': {'shares': 10, 'buy_price': 327.6},
     'BOL.ST': {'shares': 3, 'buy_price': 505.2}
 }
-CASH = 5208.4
 
-def pro_analyzer_v7(symbol, current_price):
-    """تحليل النسخة 7.1: السيولة + ملاحقة القمة + حساسية ربح 3%"""
+def get_market_sentiment():
+    """تحليل وضع السوق السويدي العام (OMXS30)"""
     try:
-        # جلب بيانات تاريخية لتحليل السلوك (التعلم المستمر)
+        index = yf.Ticker("^OMX") # مؤشر سوق ستوكهولم
+        hist = index.history(period="2d")
+        if len(hist) < 2: return "NEUTRAL"
+        
+        prev_close = hist['Close'].iloc[-2]
+        curr_close = hist['Close'].iloc[-1]
+        change = ((curr_close - prev_close) / prev_close) * 100
+        
+        if change > 0.5: return "BULLISH" # سوق صاعد
+        elif change < -0.5: return "BEARISH" # سوق هابط
+        return "NEUTRAL"
+    except:
+        return "NEUTRAL"
+
+def pro_analyzer_v8(symbol, current_price, market_status):
+    try:
         df = yf.download(symbol, period="60d", interval="1d", progress=False)
         if df.empty: return None, None
 
-        # 1. حساب RSI (مؤشر الزخم)
+        # حساب RSI والسيولة
         delta = df['Close'].diff()
         gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
         rsi = 100 - (100 / (1 + (gain / loss))).iloc[-1]
         
-        # 2. تحليل السيولة (Volume) - لضمان صحة الحركة
-        avg_volume = df['Volume'].mean()
-        curr_volume = df['Volume'].iloc[-1]
-        high_volume = curr_volume > (avg_volume * 1.1) # سيولة أعلى بـ 10% من المعتاد
+        avg_vol = df['Volume'].mean()
+        curr_vol = df['Volume'].iloc[-1]
 
-        # 3. ملاحقة القمة (Trailing Logic)
-        highest_in_period = df['High'].tail(5).max() # أعلى سعر في آخر 5 أيام
-        drop_from_peak = ((highest_in_period - current_price) / highest_in_period) * 100
+        # منطق النسخة 8.0: الشراء فقط إذا كان السوق مساعداً
+        if rsi < 35 and curr_vol > avg_vol:
+            if market_status == "BEARISH":
+                return "WAIT", "⚠️ فرصة شراء فنية، لكن السوق العام هابط. يفضل الانتظار."
+            return "BUY", f"🔥 إشارة شراء ذهبية! السوق مستقر والسيولة عالية (RSI: {rsi:.1f})."
+        
+        # ملاحقة الأرباح (Trailing)
+        highest = df['High'].tail(5).max()
+        if rsi > 70 and current_price < (highest * 0.985):
+            return "SELL", "⚠️ إشارة جني أرباح! السهم بدأ يتراجع عن القمة."
 
-        # --- اتخاذ القرار ---
-        # شراء: RSI منخفض + سيولة داخلة قوية
-        if rsi < 35 and high_volume:
-            return "BUY", f"🔥 قاع فني مع سيولة! (RSI: {rsi:.1f}). السعر مغري للشراء."
-        
-        # بيع: تشبع شرائي + تراجع عن القمة (Trailing)
-        elif rsi > 70 and drop_from_peak > 1.5:
-            return "SELL", f"⚠️ إشارة جني أرباح! السعر بدأ يتراجع عن القمة (RSI: {rsi:.1f})."
-        
         return "WAIT", None
     except:
         return None, None
 
 async def main():
     bot = Bot(token=TOKEN)
+    market_status = get_market_sentiment()
     opportunity_found = False
-    report = "🚀 رادار النسخة 7.1 (القناص الحساس):\n\n"
+    report = f"🏛️ حالة السوق العام: {market_status}\n"
+    report += "🚀 رادار النسخة 8.0 (التحليل الاستراتيجي):\n\n"
     
     for symbol, data in MY_PORTFOLIO.items():
         ticker = yf.Ticker(symbol)
-        history = ticker.history(period="1d")
-        if history.empty: continue
-        
-        curr_price = history['Close'].iloc[-1]
+        curr_price = ticker.history(period="1d")['Close'].iloc[-1]
         profit_pct = ((curr_price - data['buy_price']) / data['buy_price']) * 100
         
-        action, advice = pro_analyzer_v7(symbol, curr_price)
+        action, advice = pro_analyzer_v8(symbol, curr_price, market_status)
         
-        # تنبيهات الفرص (شراء أو بيع فني)
-        if action in ["BUY", "SELL"]:
+        if action in ["BUY", "SELL"] or advice:
             opportunity_found = True
-            report += f"📌 {symbol}\n💰 السعر: {curr_price:.2f} SEK\n💡 {advice}\n\n"
-        
-        # تنبيه الربح الحساس (بدءاً من 3% بدلاً من 7%)
+            report += f"📌 {symbol}\n💰 {curr_price:.2f} SEK\n💡 {advice if advice else 'مراقب'}\n\n"
         elif profit_pct > 3:
             opportunity_found = True
-            report += f"💰 ربح جيد! {symbol} حقق {profit_pct:.2f}%.\n💡 نظام ملاحقة القمة مفعل لضمان أكبر عائد.\n\n"
+            report += f"💰 ربح {profit_pct:.2f}% في {symbol}. الملاحقة مفعلة.\n\n"
 
     if opportunity_found:
         async with bot:
             await bot.send_message(chat_id=CHAT_ID, text=report)
-    else:
-        # طباعة في سجلات GitHub فقط للتأكد من العمل
-        print(f"النسخة 7.1: فحص السوق.. لا توجد فرص شراء أو أرباح فوق 3% حالياً.")
 
 if __name__ == "__main__":
     asyncio.run(main())

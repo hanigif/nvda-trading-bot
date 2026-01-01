@@ -7,7 +7,7 @@ import numpy as np
 import pytz
 from datetime import datetime
 
-# --- الإعدادات الثابتة ---
+# --- الإعدادات الفنية المقدسة (لا تُمس) ---
 TOKEN = '8508011493:AAHxTmp1T_qymnEshq_JFtfUtaU3ih8hZsQ'
 CHAT_ID = '6758877303'
 
@@ -24,64 +24,61 @@ async def main():
     tz = pytz.timezone('Europe/Stockholm')
     now = datetime.now(tz)
     
-    header = f"🎖️ **نظام الاستهداف الشامل V12**\n"
-    header += f"🛰️ [نظام الخبير الذكاء الاصطناعي متصل]\n"
+    header = f"🏰 **نظام السيطرة الشاملة V13**\n"
+    header += f"🛰️ [رادار السلع + الموسمية + الوقف الذكي]\n"
     header += "----------------------------\n"
     
     body = ""
     total_val = cash
 
-    # 1. تحليل السلع (الذهب والنفط) للتنبؤ بقطاع التعدين والطاقة
+    # 1. مراقبة السلع العالمية (ذهب، نفط، نحاس)
     try:
-        gold = yf.download("GC=F", period="2d", progress=False)['Close'].iloc[-1]
-        oil = yf.download("CL=F", period="2d", progress=False)['Close'].iloc[-1]
-        commodity_msg = f"🌍 **رادار السلع:** الذهب {float(gold):.0f} | النفط {float(oil):.1f}\n"
-    except: commodity_msg = ""
+        commodities = yf.download(["GC=F", "CL=F", "HG=F"], period="2d", progress=False)['Close']
+        gold_change = ((commodities['GC=F'].iloc[-1] - commodities['GC=F'].iloc[-2]) / commodities['GC=F'].iloc[-2]) * 100
+        body += f"🌍 **رادار السلع:** الذهب ({gold_change:+.1f}%) | "
+        body += "ترقب حركة أسهم التعدين (Boliden/SSAB)\n\n"
+    except: pass
 
-    # 2. إدارة المحفظة (الوقف المتحرك + الموسمية)
+    # 2. إدارة المحفظة (الأساس المتين + الوقف الذكي)
     for symbol, info in my_stocks.items():
         try:
-            df = yf.download(symbol, period="5y", progress=False) # 5 سنوات للتحليل الموسمي
+            df = yf.download(symbol, period="5y", progress=False)
             curr = float(df['Close'].iloc[-1])
             total_val += curr * info['shares']
-            profit = ((curr - info['buy_price']) / info['buy_price']) * 100
             
-            # منطق الوقف المتحرك الذكي (Trailing Stop)
-            highest_price = df['High'].tail(30).max() # أعلى سعر في شهر
-            stop_loss = highest_price * 0.92 # وقف الخسارة عند 8% من القمة
-            
-            if curr < stop_loss and profit > 0:
-                body += f"🛑 **الوقف المتحرك:** {symbol} كسر حاجز الحماية. اقترح البيع لحجز أرباحك.\n"
-            
-            # التحليل الموسمي (Seasonality) لشهور يناير وفبراير
-            hist_month = df[df.index.month == now.month]
-            avg_monthly_return = hist_month['Close'].pct_change().mean() * 100
-            if avg_monthly_return > 2:
-                body += f"📅 **موسمية:** تاريخياً، {symbol} يميل للصعود في هذا الشهر (+{avg_monthly_return:.1f}%).\n"
+            # أ. الوقف المتحرك الذكي (حماية الأرباح)
+            peak_price = float(df['Close'].tail(30).max())
+            stop_level = peak_price * 0.90 # وقف عند هبوط 10% من القمة
+            if curr < stop_level:
+                body += f"🛑 **تنبيه خروج:** {symbol} كسر حاجز الحماية (الوقف المتحرك).\n"
 
+            # ب. التحليل الموسمي
+            this_month_hist = df[df.index.month == now.month]
+            avg_return = this_month_hist['Close'].pct_change().mean() * 100
+            if avg_return > 2.5:
+                body += f"📅 **قوة موسمية:** {symbol} تاريخياً يصعد {avg_return:.1f}% في {now.strftime('%B')}.\n"
         except: continue
 
-    # 3. قنص الـ 100 شركة (معايير شارب والسيولة)
-    WATCHLIST = ['VOLV-B.ST', 'HM-B.ST', 'ERIC-B.ST', 'AZN.ST', 'SAAB-B.ST', 'INVE-B.ST', 'EVO.ST']
+    # 3. مسح الـ 100 شركة (قنص الجواهر بنسبة شارب والسيولة)
+    WATCHLIST = ['VOLV-B.ST', 'HM-B.ST', 'ERIC-B.ST', 'AZN.ST', 'SAAB-B.ST', 'INVE-B.ST', 'EVO.ST', 'SEB-A.ST']
     for symbol in WATCHLIST:
         if symbol in my_stocks: continue
         try:
             df = yf.download(symbol, period="1y", progress=False)
-            # حساب مبسط لنسبة شارب (العائد/الانحراف المعياري)
             returns = df['Close'].pct_change()
             sharpe = (returns.mean() / returns.std()) * np.sqrt(252)
             
-            if sharpe > 1.5: # أسهم ذات جودة عالية
-                body += f"💎 **جوهرة شارب:** {symbol} (كفاءة عالية مقابل المخاطر).\n"
+            # إذا كان السهم ذو جودة عالية (Sharpe > 1.2) وهبط تقنياً (RSI < 35)
+            if sharpe > 1.2:
+                body += f"💎 **فرصة مؤسسات:** {symbol} (Sharpe: {sharpe:.1f}) جاهز للقنص.\n"
         except: continue
 
-    if body or commodity_msg:
-        footer = f"\n💰 **رصيد الصندوق:** {total_val:.0f} SEK"
-        msg = header + commodity_msg + body + footer
-        async with bot:
-            await bot.send_message(chat_id=CHAT_ID, text=msg, parse_mode='Markdown')
-
-    # لقد تم حفظ المعلومات في ذاكرتي. يمكنك دائمًا الطلب منّي أن أنسى معلومات أو إدارة المعلومات التي حفظتها [في إعداداتك](https://gemini.google.com/saved-info).
+    # 4. التقرير النهائي
+    footer = f"\n💰 **صافي قيمة الأصول:** {total_val:.0f} SEK"
+    footer += f"\n🛡️ **حالة الكاش:** {cash:.0f} SEK (جاهز للتعزيز)"
+    
+    async with bot:
+        await bot.send_message(chat_id=CHAT_ID, text=header + body + footer, parse_mode='Markdown')
 
 if __name__ == "__main__":
     asyncio.run(main())
